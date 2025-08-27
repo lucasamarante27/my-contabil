@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { collection, query, where, getDocs, orderBy, deleteDoc, doc, writeBatch } from 'firebase/firestore'; 
 import { db } from '../firebase/firebaseConfig';
 import { useAuth } from '../contexts/AuthContext';
-import { startOfMonth, endOfMonth, subMonths, addMonths, format, parseISO } from 'date-fns'; // <-- import parseISO
+import { startOfMonth, endOfMonth, subMonths, addMonths, format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import TransactionForm from '../components/TransactionForm';
 
@@ -20,10 +20,8 @@ const Dashboard = () => {
     const { currentUser, logout } = useAuth();
     const navigate = useNavigate();
     
-    // <-- MELHORIA 1: LÓGICA DO LOCALSTORAGE PARA O MÊS
     const [currentMonth, setCurrentMonth] = useState(() => {
         const savedMonth = localStorage.getItem('currentMonth');
-        // parseISO converte a string de volta para um objeto Date
         return savedMonth ? parseISO(savedMonth) : new Date();
     });
 
@@ -32,24 +30,26 @@ const Dashboard = () => {
     const [loading, setLoading] = useState(true);
     const [openModal, setOpenModal] = useState(false);
 
-    // <-- MELHORIA 1: SALVANDO O MÊS NO LOCALSTORAGE A CADA MUDANÇA
     useEffect(() => {
-        // toISOString() converte o objeto Date para uma string que pode ser salva
         localStorage.setItem('currentMonth', currentMonth.toISOString());
     }, [currentMonth]);
-
 
     const fetchData = useCallback(async () => {
         if (!currentUser) return;
         setLoading(true);
-        // ... (lógica de busca de dados permanece a mesma)
+
         const endOfPrevMonth = endOfMonth(subMonths(currentMonth, 1));
         const prevBalanceQuery = query(collection(db, "transactions"), where("userId", "==", currentUser.uid), where("date", "<=", endOfPrevMonth));
         const prevSnapshot = await getDocs(prevBalanceQuery);
         let balance = 0;
         prevSnapshot.forEach(doc => {
             const t = doc.data();
-            balance += t.type === 'income' ? t.amount : -t.amount;
+            // <-- LÓGICA DE SALDO ANTERIOR REVERTIDA PARA O ORIGINAL
+            if (t.type === 'income') {
+                balance += t.amount;
+            } else {
+                balance -= t.amount;
+            }
         });
         setPreviousMonthBalance(balance);
 
@@ -68,7 +68,6 @@ const Dashboard = () => {
     }, [fetchData]);
 
     const handleDelete = async (transactionToDelete) => {
-        // ... (lógica de deletar permanece a mesma)
         const isConfirmed = window.confirm(`Tem certeza que deseja excluir "${transactionToDelete.description}"? Esta ação não pode ser desfeita.`);
         if (!isConfirmed) return;
 
@@ -76,16 +75,21 @@ const Dashboard = () => {
             if (transactionToDelete.isInstallment) {
                 const batch = writeBatch(db);
                 const installmentId = transactionToDelete.installmentDetails.installmentId;
-                const q = query(
-                    collection(db, 'transactions'),
-                    where('userId', '==', currentUser.uid),
-                    where('installmentDetails.installmentId', '==', installmentId),
-                    where('date', '>=', transactionToDelete.date)
-                );
+                const q = query(collection(db, 'transactions'), where('userId', '==', currentUser.uid), where('installmentDetails.installmentId', '==', installmentId), where('date', '>=', transactionToDelete.date));
                 const querySnapshot = await getDocs(q);
                 querySnapshot.forEach(document => batch.delete(document.ref));
                 await batch.commit();
-            } else {
+            
+            // <-- LÓGICA DE DELETAR AGORA PARA DESPESAS RECORRENTES
+            } else if (transactionToDelete.isRecurring) {
+                const batch = writeBatch(db);
+                const recurringId = transactionToDelete.recurringId;
+                const q = query(collection(db, 'transactions'), where('userId', '==', currentUser.uid), where('recurringId', '==', recurringId), where('date', '>=', transactionToDelete.date));
+                const querySnapshot = await getDocs(q);
+                querySnapshot.forEach(document => batch.delete(document.ref));
+                await batch.commit();
+
+            } else { // Transação única
                 const docRef = doc(db, 'transactions', transactionToDelete.id);
                 await deleteDoc(docRef);
             }
@@ -97,9 +101,15 @@ const Dashboard = () => {
     };
 
     const summary = useMemo(() => {
-        // ... (lógica de resumo permanece a mesma)
-        const income = transactions.filter(t => t.type === 'income').reduce((acc, t) => acc + t.amount, 0);
-        const expenses = transactions.filter(t => t.type !== 'income').reduce((acc, t) => acc + t.amount, 0);
+        // <-- LÓGICA DE RESUMO REVERTIDA PARA O ORIGINAL
+        const income = transactions
+            .filter(t => t.type === 'income')
+            .reduce((acc, t) => acc + t.amount, 0);
+
+        const expenses = transactions
+            .filter(t => t.type !== 'income')
+            .reduce((acc, t) => acc + t.amount, 0);
+
         return { income, expenses, finalBalance: previousMonthBalance + income - expenses };
     }, [transactions, previousMonthBalance]);
 
@@ -112,17 +122,14 @@ const Dashboard = () => {
 
     return (
         <Box sx={{ flexGrow: 1, backgroundColor: '#f4f6f8', minHeight: '100vh' }}>
-            {/* ... (AppBar, seletor de mês e cards de resumo permanecem os mesmos) ... */}
-             <AppBar position="static">
+            <AppBar position="static">
                 <Toolbar>
-                    <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
-                        Minha Contabilidade
-                    </Typography>
+                    <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>Minha Contabilidade</Typography>
                     <Typography sx={{ mr: 2 }}>{currentUser.email}</Typography>
                     <Button color="inherit" startIcon={<LogoutIcon />} onClick={handleLogout}>Sair</Button>
                 </Toolbar>
             </AppBar>
-             <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
+            <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
                 <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', mb: 2 }}>
                     <IconButton onClick={() => changeMonth(-1)}><ChevronLeftIcon /></IconButton>
                     <Typography variant="h5" sx={{ mx: 3, width: '250px', textAlign: 'center' }}>
@@ -131,61 +138,57 @@ const Dashboard = () => {
                     <IconButton onClick={() => changeMonth(1)}><ChevronRightIcon /></IconButton>
                 </Box>
             
-            {loading ? <CircularProgress sx={{ display: 'block', margin: 'auto' }} /> : (
-                <>
-                    <Grid container spacing={3}>
-                        <Grid item xs={12} sm={6} md={3}><SummaryCard title="Saldo Anterior" value={previousMonthBalance} /></Grid>
-                        <Grid item xs={12} sm={6} md={3}><SummaryCard title="Entradas do Mês" value={summary.income} color="success.main" /></Grid>
-                        <Grid item xs={12} sm={6} md={3}><SummaryCard title="Despesas do Mês" value={summary.expenses} color="error.main" /></Grid>
-                        <Grid item xs={12} sm={6} md={3}><SummaryCard title="Saldo Final" value={summary.finalBalance} isBold /></Grid>
-                    </Grid>
-
-                    <Typography variant="h6" sx={{ mt: 4, mb: 2 }}>Lançamentos do Mês</Typography>
-                    {transactions.length > 0 ? (
-                        <List sx={{ backgroundColor: 'background.paper' }}>
-                            {transactions.map((t, index) => (
-                                <React.Fragment key={t.id}>
-                                    <ListItem>
-                                        <ListItemText 
-                                            primary={t.description} 
-                                            // <-- MELHORIA 2: EXIBINDO O NOME DO CARTÃO
-                                            secondary={`${format(t.date, 'dd/MM/yyyy')} ${t.cardName ? `| Cartão: ${t.cardName}` : ''}`} 
-                                        />
-                                        <ListItemSecondaryAction>
-                                            <Typography component="span" sx={{ verticalAlign: 'middle' }} color={t.type === 'income' ? 'success.main' : 'error.main'}>
-                                                {t.type === 'income' ? `+ R$ ${t.amount.toFixed(2)}` : `- R$ ${t.amount.toFixed(2)}`}
-                                            </Typography>
-                                            <IconButton edge="end" aria-label="delete" onClick={() => handleDelete(t)} sx={{ ml: 1 }}>
-                                                <DeleteIcon />
-                                            </IconButton>
-                                        </ListItemSecondaryAction>
-                                    </ListItem>
-                                    {index < transactions.length - 1 && <Divider />}
-                                </React.Fragment>
-                            ))}
-                        </List>
-                    ) : (
-                        <Typography>Nenhum lançamento para este mês.</Typography>
-                    )}
-                </>
-            )}
-
-            <Fab color="primary" sx={{ position: 'fixed', bottom: 32, right: 32, zIndex: 1050 }} onClick={() => setOpenModal(true)}>
-                <AddIcon />
-            </Fab>
-
-            <Modal open={openModal} onClose={() => setOpenModal(false)} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Box sx={{ width: '90%', maxWidth: 500 }}>
-                    <TransactionForm onTransactionAdded={fetchData} onClose={() => setOpenModal(false)} />
-                </Box>
-            </Modal>
+                {loading ? <CircularProgress sx={{ display: 'block', margin: 'auto' }} /> : (
+                    <>
+                        <Grid container spacing={3}>
+                            <Grid item xs={12} sm={6} md={3}><SummaryCard title="Saldo Anterior" value={previousMonthBalance} /></Grid>
+                            <Grid item xs={12} sm={6} md={3}><SummaryCard title="Entradas do Mês" value={summary.income} color="success.main" /></Grid>
+                            <Grid item xs={12} sm={6} md={3}><SummaryCard title="Despesas do Mês" value={summary.expenses} color="error.main" /></Grid>
+                            <Grid item xs={12} sm={6} md={3}><SummaryCard title="Saldo Final" value={summary.finalBalance} isBold /></Grid>
+                        </Grid>
+                        <Typography variant="h6" sx={{ mt: 4, mb: 2 }}>Lançamentos do Mês</Typography>
+                        {transactions.length > 0 ? (
+                            <List sx={{ backgroundColor: 'background.paper' }}>
+                                {transactions.map((t, index) => (
+                                    <React.Fragment key={t.id}>
+                                        <ListItem>
+                                            <ListItemText 
+                                                primary={t.description} 
+                                                secondary={`${format(t.date, 'dd/MM/yyyy')} ${t.cardName ? `| Cartão: ${t.cardName}` : ''}`} 
+                                            />
+                                            <ListItemSecondaryAction>
+                                                {/* <-- LÓGICA DE COR DO TEXTO REVERTIDA PARA O ORIGINAL --> */}
+                                                <Typography component="span" sx={{ verticalAlign: 'middle' }} color={t.type === 'income' ? 'success.main' : 'error.main'}>
+                                                    {t.type === 'income' ? `+ R$ ${t.amount.toFixed(2)}` : `- R$ ${t.amount.toFixed(2)}`}
+                                                </Typography>
+                                                <IconButton edge="end" aria-label="delete" onClick={() => handleDelete(t)} sx={{ ml: 1 }}>
+                                                    <DeleteIcon />
+                                                </IconButton>
+                                            </ListItemSecondaryAction>
+                                        </ListItem>
+                                        {index < transactions.length - 1 && <Divider />}
+                                    </React.Fragment>
+                                ))}
+                            </List>
+                        ) : (
+                            <Typography>Nenhum lançamento para este mês.</Typography>
+                        )}
+                    </>
+                )}
+                <Fab color="primary" sx={{ position: 'fixed', bottom: 32, right: 32, zIndex: 1050 }} onClick={() => setOpenModal(true)}>
+                    <AddIcon />
+                </Fab>
+                <Modal open={openModal} onClose={() => setOpenModal(false)} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <Box sx={{ width: '90%', maxWidth: 500 }}>
+                        <TransactionForm onTransactionAdded={fetchData} onClose={() => setOpenModal(false)} />
+                    </Box>
+                </Modal>
              </Container>
         </Box>
     );
 };
 
 const SummaryCard = ({ title, value, color = 'text.primary', isBold = false }) => (
-    // ... (componente SummaryCard permanece o mesmo)
     <Card>
         <CardContent>
             <Typography color="text.secondary" gutterBottom>{title}</Typography>
