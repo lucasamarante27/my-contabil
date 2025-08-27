@@ -13,7 +13,8 @@ const TransactionForm = ({ onTransactionAdded, onClose }) => {
     const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
     const [type, setType] = useState('variableExpense');
     const [installments, setInstallments] = useState(1);
-    const [cardName, setCardName] = useState(''); // <-- NOVO ESTADO PARA O CARTÃO
+    const [cardName, setCardName] = useState('');
+    const [repeatMonths, setRepeatMonths] = useState(12);
     const { currentUser } = useAuth();
 
     const handleSubmit = async (e) => {
@@ -24,36 +25,50 @@ const TransactionForm = ({ onTransactionAdded, onClose }) => {
             date: parseISO(date),
             type,
             installments: parseInt(installments),
-            cardName: cardName // <-- NOVO DADO
+            cardName,
+            repeatMonths: parseInt(repeatMonths),
         };
 
-        if (transactionData.type === 'installment' && transactionData.installments > 1) {
+        // <-- LÓGICA ATUALIZADA PARA REPETIR DESPESA FIXA E PARCELAMENTO -->
+        if ((transactionData.type === 'installment' && transactionData.installments > 1) || transactionData.type === 'fixedExpense') {
             const batch = writeBatch(db);
-            const installmentId = uuidv4();
-            const installmentValue = transactionData.amount / transactionData.installments;
-            for (let i = 0; i < transactionData.installments; i++) {
-                const installmentDate = addMonths(transactionData.date, i);
+            const isInstallment = transactionData.type === 'installment';
+            // Se for despesa fixa, usa repeatMonths; se for parcelamento, usa installments
+            const loopCount = isInstallment ? transactionData.installments : transactionData.repeatMonths;
+            const uniqueId = uuidv4();
+
+            for (let i = 0; i < loopCount; i++) {
+                const transactionDate = addMonths(transactionData.date, i);
                 const docRef = doc(collection(db, "transactions"));
-                batch.set(docRef, {
+                
+                let newDoc = {
                     userId: currentUser.uid,
-                    description: `${transactionData.description} (${i + 1}/${transactionData.installments})`,
-                    amount: installmentValue,
-                    type: 'installment',
-                    date: installmentDate,
-                    isInstallment: true,
-                    installmentDetails: { installmentId, current: i + 1, total: transactionData.installments },
-                    cardName: transactionData.cardName, // <-- SALVANDO O NOME DO CARTÃO
-                });
+                    amount: isInstallment ? transactionData.amount / loopCount : transactionData.amount,
+                    type: transactionData.type,
+                    date: transactionDate,
+                    description: isInstallment ? `${transactionData.description} (${i + 1}/${loopCount})` : transactionData.description,
+                };
+
+                if (isInstallment) {
+                    newDoc.isInstallment = true;
+                    newDoc.installmentDetails = { installmentId: uniqueId, current: i + 1, total: loopCount };
+                    newDoc.cardName = transactionData.cardName;
+                } else { // É uma Despesa Fixa
+                    newDoc.isRecurring = true; // Flag para identificar que é recorrente
+                    newDoc.recurringId = uniqueId; // ID para agrupar as despesas recorrentes
+                }
+                
+                batch.set(docRef, newDoc);
             }
             await batch.commit();
-        } else {
+
+        } else { // Transação única (Entrada, Despesa Variável)
             await addDoc(collection(db, 'transactions'), {
                 userId: currentUser.uid,
                 description: transactionData.description,
                 amount: transactionData.amount,
                 type: transactionData.type,
                 date: transactionData.date,
-                isInstallment: false,
             });
         }
         
@@ -65,35 +80,34 @@ const TransactionForm = ({ onTransactionAdded, onClose }) => {
         <Box component="form" onSubmit={handleSubmit} sx={{ p: 2, border: '1px solid #ddd', borderRadius: '8px', backgroundColor: 'white' }}>
             <Typography variant="h6" gutterBottom>Novo Lançamento</Typography>
             <Grid container spacing={2}>
-                <Grid item xs={12}>
-                    <TextField label="Descrição" value={description} onChange={e => setDescription(e.target.value)} fullWidth required />
-                </Grid>
-                <Grid item xs={12} sm={6}>
-                    <TextField label="Valor (R$)" type="number" value={amount} onChange={e => setAmount(e.target.value)} fullWidth required />
-                </Grid>
-                <Grid item xs={12} sm={6}>
-                    <TextField type="date" value={date} onChange={e => setDate(e.target.value)} fullWidth required />
-                </Grid>
+                <Grid item xs={12}><TextField label="Descrição" value={description} onChange={e => setDescription(e.target.value)} fullWidth required /></Grid>
+                <Grid item xs={12} sm={6}><TextField label="Valor (R$)" type="number" value={amount} onChange={e => setAmount(e.target.value)} fullWidth required /></Grid>
+                <Grid item xs={12} sm={6}><TextField type="date" value={date} onChange={e => setDate(e.target.value)} fullWidth required /></Grid>
                 <Grid item xs={12}>
                     <FormControl fullWidth>
                         <InputLabel>Tipo</InputLabel>
+                        {/* <-- OPÇÕES DO SELETOR AJUSTADAS --> */}
                         <Select value={type} label="Tipo" onChange={e => setType(e.target.value)}>
                             <MenuItem value="income">Entrada</MenuItem>
-                            <MenuItem value="fixedExpense">Despesa Fixa</MenuItem>
+                            <MenuItem value="fixedExpense">Despesa Fixa (recorrente)</MenuItem>
                             <MenuItem value="variableExpense">Despesa Variável</MenuItem>
                             <MenuItem value="installment">Parcelamento</MenuItem>
                         </Select>
                     </FormControl>
                 </Grid>
-                {/* <-- CONDIÇÃO PARA MOSTRAR OS CAMPOS DE PARCELAMENTO --> */}
+
+                {/* <-- CAMPO DE REPETIÇÃO AGORA APARECE PARA DESPESA FIXA --> */}
+                {type === 'fixedExpense' && (
+                    <Grid item xs={12}>
+                        <TextField label="Repetir por quantos meses?" type="number" value={repeatMonths} onChange={e => setRepeatMonths(e.target.value)} min="1" fullWidth />
+                    </Grid>
+                )}
+
+                {/* Campos para Parcelamento */}
                 {type === 'installment' && (
                     <>
-                        <Grid item xs={12} sm={6}>
-                            <TextField label="Nº de Parcelas" type="number" value={installments} onChange={e => setInstallments(e.target.value)} min="2" fullWidth />
-                        </Grid>
-                        <Grid item xs={12} sm={6}>
-                            <TextField label="Nome do Cartão" value={cardName} onChange={e => setCardName(e.target.value)} fullWidth />
-                        </Grid>
+                        <Grid item xs={12} sm={6}><TextField label="Nº de Parcelas" type="number" value={installments} onChange={e => setInstallments(e.target.value)} min="2" fullWidth /></Grid>
+                        <Grid item xs={12} sm={6}><TextField label="Nome do Cartão" value={cardName} onChange={e => setCardName(e.target.value)} fullWidth /></Grid>
                     </>
                 )}
                 <Grid item xs={12} sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
