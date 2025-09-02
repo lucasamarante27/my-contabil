@@ -11,7 +11,7 @@ import TransactionForm from '../components/TransactionForm';
 import {
     Container, Typography, Box, Grid, Card, CardContent, Fab, Modal,
     List, ListItem, ListItemText, ListItemSecondaryAction, IconButton,
-    AppBar, Toolbar, Button, CircularProgress, Divider
+    AppBar, Toolbar, Button, CircularProgress
 } from '@mui/material';
 import { Add as AddIcon, Logout as LogoutIcon, ChevronLeft as ChevronLeftIcon, ChevronRight as ChevronRightIcon, Delete as DeleteIcon } from '@mui/icons-material';
 
@@ -147,8 +147,8 @@ const Dashboard = () => {
                             <List sx={{ backgroundColor: 'transparent' }}>
                                 {transactions.map((t, index) => (
                                     <React.Fragment key={t.id}>
-                                        <Card sx={{ mb: 2 }}> {/* Usando Card para cada item da lista */}
-                                            <ListItem sx={{ padding: '16px' }}> {/* Adicionado padding para o conteúdo */}
+                                        <Card sx={{ mb: 2 }}>
+                                            <ListItem sx={{ padding: '16px' }}>
                                                 <ListItemText 
                                                     primary={t.description} 
                                                     secondary={`${format(t.date, 'dd/MM/yyyy')} ${t.cardName ? `| Cartão: ${t.cardName}` : ''}`} 
