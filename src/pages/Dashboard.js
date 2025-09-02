@@ -15,7 +15,6 @@ import {
 } from '@mui/material';
 import { Add as AddIcon, Logout as LogoutIcon, ChevronLeft as ChevronLeftIcon, ChevronRight as ChevronRightIcon, Delete as DeleteIcon } from '@mui/icons-material';
 
-
 const Dashboard = () => {
     const { currentUser, logout } = useAuth();
     const navigate = useNavigate();
@@ -44,7 +43,6 @@ const Dashboard = () => {
         let balance = 0;
         prevSnapshot.forEach(doc => {
             const t = doc.data();
-            // <-- LÓGICA DE SALDO ANTERIOR REVERTIDA PARA O ORIGINAL
             if (t.type === 'income') {
                 balance += t.amount;
             } else {
@@ -79,8 +77,6 @@ const Dashboard = () => {
                 const querySnapshot = await getDocs(q);
                 querySnapshot.forEach(document => batch.delete(document.ref));
                 await batch.commit();
-            
-            // <-- LÓGICA DE DELETAR AGORA PARA DESPESAS RECORRENTES
             } else if (transactionToDelete.isRecurring) {
                 const batch = writeBatch(db);
                 const recurringId = transactionToDelete.recurringId;
@@ -88,7 +84,6 @@ const Dashboard = () => {
                 const querySnapshot = await getDocs(q);
                 querySnapshot.forEach(document => batch.delete(document.ref));
                 await batch.commit();
-
             } else { // Transação única
                 const docRef = doc(db, 'transactions', transactionToDelete.id);
                 await deleteDoc(docRef);
@@ -101,7 +96,6 @@ const Dashboard = () => {
     };
 
     const summary = useMemo(() => {
-        // <-- LÓGICA DE RESUMO REVERTIDA PARA O ORIGINAL
         const income = transactions
             .filter(t => t.type === 'income')
             .reduce((acc, t) => acc + t.amount, 0);
@@ -122,14 +116,16 @@ const Dashboard = () => {
 
     return (
         <Box sx={{ flexGrow: 1, backgroundColor: '#f4f6f8', minHeight: '100vh' }}>
-            <AppBar position="static">
-                <Toolbar>
-                    <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>Minha Contabilidade</Typography>
-                    <Typography sx={{ mr: 2 }}>{currentUser.email}</Typography>
-                    <Button color="inherit" startIcon={<LogoutIcon />} onClick={handleLogout}>Sair</Button>
+            <AppBar position="sticky">
+                <Toolbar sx={{ flexWrap: 'wrap' }}>
+                    <Typography variant="h6" component="div" sx={{ flexGrow: 1, minWidth: '200px' }}>Minha Contabilidade</Typography>
+                    <Box sx={{ display: 'flex', alignItems: 'center', ml: { xs: 0, sm: 'auto' } }}>
+                        <Typography sx={{ mr: 2, display: { xs: 'none', sm: 'block' } }}>{currentUser.email}</Typography>
+                        <Button color="inherit" startIcon={<LogoutIcon />} onClick={handleLogout}>Sair</Button>
+                    </Box>
                 </Toolbar>
             </AppBar>
-            <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
+            <Container maxWidth="lg" sx={{ mt: 4, mb: 4, paddingBottom: 10 }}> 
                 <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', mb: 2 }}>
                     <IconButton onClick={() => changeMonth(-1)}><ChevronLeftIcon /></IconButton>
                     <Typography variant="h5" sx={{ mx: 3, width: '250px', textAlign: 'center' }}>
@@ -148,25 +144,27 @@ const Dashboard = () => {
                         </Grid>
                         <Typography variant="h6" sx={{ mt: 4, mb: 2 }}>Lançamentos do Mês</Typography>
                         {transactions.length > 0 ? (
-                            <List sx={{ backgroundColor: 'background.paper' }}>
+                            <List sx={{ backgroundColor: 'transparent' }}>
                                 {transactions.map((t, index) => (
                                     <React.Fragment key={t.id}>
-                                        <ListItem>
-                                            <ListItemText 
-                                                primary={t.description} 
-                                                secondary={`${format(t.date, 'dd/MM/yyyy')} ${t.cardName ? `| Cartão: ${t.cardName}` : ''}`} 
-                                            />
-                                            <ListItemSecondaryAction>
-                                                {/* <-- LÓGICA DE COR DO TEXTO REVERTIDA PARA O ORIGINAL --> */}
-                                                <Typography component="span" sx={{ verticalAlign: 'middle' }} color={t.type === 'income' ? 'success.main' : 'error.main'}>
-                                                    {t.type === 'income' ? `+ R$ ${t.amount.toFixed(2)}` : `- R$ ${t.amount.toFixed(2)}`}
-                                                </Typography>
-                                                <IconButton edge="end" aria-label="delete" onClick={() => handleDelete(t)} sx={{ ml: 1 }}>
-                                                    <DeleteIcon />
-                                                </IconButton>
-                                            </ListItemSecondaryAction>
-                                        </ListItem>
-                                        {index < transactions.length - 1 && <Divider />}
+                                        <Card sx={{ mb: 2 }}> {/* Usando Card para cada item da lista */}
+                                            <ListItem sx={{ padding: '16px' }}> {/* Adicionado padding para o conteúdo */}
+                                                <ListItemText 
+                                                    primary={t.description} 
+                                                    secondary={`${format(t.date, 'dd/MM/yyyy')} ${t.cardName ? `| Cartão: ${t.cardName}` : ''}`} 
+                                                />
+                                                <ListItemSecondaryAction>
+                                                    <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'nowrap' }}>
+                                                        <Typography component="span" sx={{ verticalAlign: 'middle', whiteSpace: 'nowrap' }} color={t.type === 'income' ? 'success.main' : 'error.main'}>
+                                                            {t.type === 'income' ? `+ R$ ${t.amount.toFixed(2)}` : `- R$ ${t.amount.toFixed(2)}`}
+                                                        </Typography>
+                                                        <IconButton edge="end" aria-label="delete" onClick={() => handleDelete(t)} sx={{ ml: 1, minWidth: '40px' }}>
+                                                            <DeleteIcon />
+                                                        </IconButton>
+                                                    </Box>
+                                                </ListItemSecondaryAction>
+                                            </ListItem>
+                                        </Card>
                                     </React.Fragment>
                                 ))}
                             </List>
